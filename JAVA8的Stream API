@@ -1,0 +1,518 @@
+
+> 2014年Java8发布,直到2020年根据 Snyk 和 The Java Magazine 联合推出发布的 2020 JVM 生态调查报告显示,在所有的 Java 版本中,仍然有 64% 的开发者使用 Java 8.
+> 尽管 Java 8 发布多年,使用者众多,可神奇的是竟然有很多同学没有用过 Java 8 的新特性,比如 **Lambda**表达式;比如**方法引用**;再比如今天要说的 **Stream**.其实 Stream 就是以 Lambda 和方法引用为基础,封装的简单易用\函数式风格的 API.
+
+Java8中的Stream API就是函数式的编程风格,其中"函数"指的就是方法引用,"式"就是 Lambda 表达式.
+
+# Lambda 表达式
+> Lambda 表达式,也可称为闭包,它是推动 Java 8 发布的最重要新特性.Lambda 允许把函数作为一个方法的参数（函数作为参数传递进方法中）.使用 Lambda 表达式可以使代码变的更加简洁紧凑.
+Java 中, Lambda 表达式的格式如下:
+```java
+// 无参数,无返回值
+() -> log.info("Lambda")
+
+ // 有参数,有返回值
+(int a, int b) -> { a+b }
+```
+相当于
+```java
+log.info("Lambda");
+
+private int plus(int a, int b){
+    return a+b;
+}
+```
+Java中常用到 Lambda 表达式的场景是新建线程,如果不使用 Lambda 表达式,我们通常需要在 `new Thread` 的构造方法中创建一个 `Runnable` 的匿名内部类. 匿名内部类不需要对象接收,直接当作参数.
+```java
+new Thread(new Runnable() {
+    @Override
+    public void run() {
+        System.out.println("使用匿名内部类创建线程");
+    }
+});
+```
+如果使用 Lambda 表达式去创建线程:
+```java
+new Thread(()->{
+    System.out.println("使用Lambda表达式创建线程");
+}).run();
+```
+是不是感觉简洁优雅了许多?
+
+Lambda 表达式简化了匿名内部类的形式,可以达到同样的效果,但是 Lambda 要优雅的多.虽然最终达到的目的是一样的,但其实内部的实现原理却不相同.
+
+匿名内部类在编译之后会创建一个新的匿名内部类出来,而 Lambda 是调用 JVM `invokedynamic`指令实现的,并不会产生新类.
+# 方法引用
+方法引用使得我们可以将一个方法赋给一个变量或者作为参数传递给另外一个方法. `::` 双冒号是方法引用的符号,比如下面的语句,引用了 `Integer` 类的 `parseInt` 方法.
+```java
+Function<String, Integer> s = Integer::parseInt;
+Integer i = s.apply("10");
+```
+我最常用的是引用 `System` 类下 `PrintStream` 中的 `println`方法,通常用于遍历集合:
+```java
+List list = Arrays.asList(1, 2, 3, 4, 5);
+//使用Stream API和方法引用
+list.forEach(System.out::println);
+
+//等价于下面的方式
+for (Object o : list) {
+    System.out.println(o);
+}
+```
+同样的方法返回的类型可以不同:
+```java
+//引用 Integer.compare
+Comparator<Integer> comparator = Integer::compare;
+int result = comparator.compare(100,10);
+//引用Integer.compare
+IntBinaryOperator intBinaryOperator = Integer::compare;
+int result = intBinaryOperator.applyAsInt(10,100);
+```
+为何会这样?
+
+**Q:什么样的方法可以被引用?**
+
+A:任何可以访问到的方法都可以被引用.
+
+**Q:返回值应该是什么类型?**
+
+A:返回的类型是 **Java 8** 专门定义的函数式接口,这些接口用 `@FunctionalInterface` 注解.
+
+比如 `Function` 这个函数式接口的定义如下:
+```java
+@FunctionalInterface
+public interface Function<T, R> {
+    R apply(T t);
+    ......
+}
+```
+关键点:你引用的方法的参数个数/类型/返回值类型要和函数式接口中的方法声明一一对应.
+
+比如`Integer.parseInt`方法定义:
+```java
+public static int parseInt(String s) throws NumberFormatException {
+    return parseInt(s,10);
+}
+```
++ `parseInt` 方法传递参数为一个, `Function` 接口中的 `apply` 方法参数个数也是一个.
++ `apply` 方法参数类型和返回类型都是泛型,可以和 `parseInt` 方法对应.
+
+所以我们可以使用 `Function` 去接收 `Integer::printInt` 的方法引用,并且可以调用 `apply` 方法,这个时候调用方法实际是 `Integer.parseInt` 方法.
+
+以此类推,`Integer.compare` 方法定义如下:
+```java
+public static int compare(int x, int y) {
+    return (x < y) ? -1 : ((x == y) ? 0 : 1);
+}
+```
+返回值类型为 `int` ,传递两个 `int` 类型的参数.
+
+然后看一下 `Comparator` 和 `IntBinaryOperator` 它们两个的函数式接口定义和其中对应的方法:
+```java
+@FunctionalInterface
+public interface Comparator<T> {
+    int compare(T o1, T o2);
+    ......
+}
+
+@FunctionalInterface
+public interface IntBinaryOperator {
+    int applyAsInt(int left, int right);
+    ......
+}
+```
+可以看到 `Integer::compare` 和它们都能正确的匹配上,所以用这两个函数式接口都能正常的接收.不只是这两个,只要是某个函数式接口中声明了一个这样的方法:两个参数,参数类型是 `int` 或者 `泛型` ,并且方法的返回值为 `int` 或者 `泛型` ,都可以完美接收.
+
+JDK默认定义了许多函数式接口,主要在 `java.util.function` 包下,还有 `Java.util.Comparator` 专门用于定制比较器.另外 `Runnable` 也是一个函数式接口.
+
+![JDK中java.util.function包下内容](https://www.justyao.ga/?/images/2020/08/16/7PFGg2G5gZ/QQ%E5%9B%BE%E7%89%8720200816161806.png)
+
+我们也可以通过定义函数式接口并添加方法的方式,自己实现方法引用式调用,有兴趣的可以试试看.
+
+# Stream API
+Stream 是 Java8 中集合数据处理的利器,很多本来复杂/需要些大量代码的方法,比如过滤/分组等操作,使用 Stream 就可以在一行代码搞定.
+
+`Collection` 接口提供了 `stream()` 方法,让我们可以在一个集合方便的使用 **Stream API** 来进行各种操作.这里要注意,我们执行的任何操作都不会对原集合造成影响,你可以同时在一个集合上提取出多个 stream 进行操作.
+
+Stream接口继承自 `BaseStream` , 几乎所有的接口声明都是接受方法引用类型的参数,比如 `filter` 方法,接收了一个 `Predicate` 类型的参数,它就是一个函数式接口,常用来作为条件比较/筛选/过滤用.
+```java
+public interface Stream<T> extends BaseStream<T, Stream<T>> {
+  Stream<T> filter(Predicate<? super T> predicate);
+  ......
+}
+```
+下面来看看 Stream 常用 API
+![常用API](https://www.justyao.ga/?/images/2020/08/16/6S5iAbMY1i/3.%E5%B8%B8%E7%94%A8API.png)
+
+## of
+可以接受泛型对象或可变成泛型集合,构造一个Stream对象
+```java
+private static void createStream(){
+    Stream<String> stringStream = Stream.of("a","b","c");
+}
+```
+## empty
+```java
+private static void emptyStream(){
+    Stream<Object> stream = Stream.empty();
+}
+```
+## concat
+连接两个Stream,不改变其中任何一个 Stream 对象,返回一个新的 Stream 对象.
+```java
+private static void concatStream(){
+    Stream<String> a = Stream.of("a","b","c");
+    Stream<String> b = Stream.of("d","e");
+    Stream<String> c = Stream.concat(a,b);
+}
+```
+## max
+一般用于求数字集合的最大值,或者按实体中数字类型的属性比较拥有最大值的那个实体.接收一个 `Comparator<T>` ,它是一个函数式接口,专门用作定义两个对象之间的比较,例如下面这个方法使用了 `Integer::compareTo` 这个方法引用.
+```java
+private static void max(){
+    Stream<Integer> integerStream = Stream.of(2, 2, 100, 5);
+    Integer max = integerStream.max(Integer::compareTo).get();
+    System.out.println(max);
+}
+```
+也可以使用自己实现的 `Comparator`
+```java
+private static void max(){
+    Stream<Integer> integerStream = Stream.of(2, 2, 100, 5);
+    Comparator<Integer> comparator =  (x, y) -> (x.intValue() < y.intValue()) ? -1 : ((x.equals(y)) ? 0 : 1);
+    Integer max = integerStream.max(comparator).get();
+    System.out.println(max);
+}
+```
+## min
+与 max 用法一样,求最小值
+```java
+private static void min(){
+    Stream<Integer> integerStream = Stream.of(2, 2, 100, 5);
+    Integer min = integerStream.min(Integer::compareTo).get();
+    System.out.println(min);
+}
+```
+## findFirst
+获取 Stream 中的第一个元素
+```java
+private static void findFirst(){
+    Stream<Integer> integerStream = Stream.of(2, 2, 100, 5);
+    Integer min = integerStream.findFirst().get();
+    System.out.println(min);
+}
+```
+## findAny
+获取 Stream 中的某个元素,如果是串行情况下,一般都会返回第一个元素,并行情况下就不一定.
+```java
+private static void findAny(){
+    Stream<Integer> integerStream = Stream.of(2, 2, 100, 5);
+    Integer min = integerStream.findAny().get();
+    System.out.println(min);
+}
+```
+## count
+返回元素个数
+```java
+Stream<String> a = Stream.of("a", "b", "c");
+long x = a.count();
+```
+## peek
+建立一个通道对Stream中每个元素执行对应的操作,对应 `Consumer<T>` 的函数式接口,这是一个消费者函数式接口,它是用来消费 Stream 元素的,比如下面这个方法,把每个元素转换成大写字母.
+```java
+private static void peek() {
+    Stream<String> a = Stream.of("a", "b", "c");
+    List<String> list = a.peek(e->System.out.println(e.toUpperCase())).collect(Collectors.toList());
+}
+```
+## forEach
+和 peek 类似,都接受一个消费者函数式接口,可以对每个元素进行对应的操作,不同的是 `forEach` 执行之后,这个Stream就真的是被消费掉了,之后这个 Stream 流就没有了,不能再进行后续操作,而 `peek` 操作完之后,还是一个可操作的Stream对象.
+```java
+private static void forEach() {
+    Stream<String> a = Stream.of("a", "b", "c");
+    a.forEach(e->System.out.println(e.toUpperCase()));
+}
+```
+## forEachOrdered
+功能和 `forEach` 一样,但是 `forEachOrdered` 有顺序保证,也就是对 Stream 中的元素插入时顺序进行消费.如果并行运行, `forEach` 和 `forEachOrdered` 的效果就不一样了.
+```java
+//随机输出
+Stream<String> a = Stream.of("a", "b", "c");
+a.parallel().forEach(e->System.out.println(e.toUpperCase()));
+//顺序输出
+Stream<String> a = Stream.of("a", "b", "c");
+a.parallel().forEachOrdered(e->System.out.println(e.toUpperCase()));
+```
+## limit
+获取前n条数据,只接受一个数据条数参数
+```java
+private static void limit() {
+    Stream<String> a = Stream.of("a", "b", "c");
+    a.limit(2).forEach(e->System.out.println(e));
+}
+//a b
+```
+## skip
+跳过前n条数据
+```java
+private static void skip() {
+    Stream<String> a = Stream.of("a", "b", "c");
+    a.skip(2).forEach(e->System.out.println(e));
+}
+//c
+```
+## distinct
+元素去重
+```java
+private static void distinct() {
+    Stream<String> a = Stream.of("a", "b", "c","b");
+    a.distinct().forEach(e->System.out.println(e));
+    //a b c
+}
+```
+## sorted
+有两个重载,一个无参数,另外一个有 `Comparator` 类型的参数.
+
+无参类型的按照自然顺序进行排序,只适合简单元素(数字,字母等).
+```java
+private static void sorted() {
+    Stream<String> a = Stream.of("a", "c", "b");
+    a.sorted().forEach(e->System.out.println(e));
+    //a b c
+}
+```
+有参数的需要自定义排序规则,例如下面这个方法,按照第二个字母的大小顺序排序
+```java
+private static void sortedWithComparator() {
+    Stream<String> a = Stream.of("a1", "c6", "b3");
+    a.sorted((x,y)->Integer.parseInt(x.substring(1))>Integer.parseInt(y.substring(1))?1:-1).forEach(e->System.out.println(e));
+    //a1 b3 c6
+}
+```
+## anyMatch
+判断的条件里,任意一个元素成功,返回true
+```java
+List<String> list = Arrays.asList("a", "a", "a", "a", "b");
+boolean aa = list.stream().anyMatch(str -> str.equals("a"));
+//aa==true
+```
+## allMatch
+判断条件里的元素，所有的都是，返回true
+```java
+List<String> list = Arrays.asList("a", "a", "a", "a", "b");
+boolean bb = list.stream().anyMatch(str -> str.equals("a"));
+//aa==false
+```
+## noneMatch
+跟allMatch相反，判断条件里的元素，所有的都不是，返回true
+```java
+List<String> list = Arrays.asList("a", "a", "a", "a", "b");
+boolean aa = list.stream().anyMatch(str -> str.equals("a"));
+//aa==false
+```
+**为了更好说明接下来的API,模拟几个用户对象**
+```java
+public class User {
+    private Integer userId;
+    private String userName;
+    private Integer age;
+    private Integer gender;
+    private String phone;
+    private String address;
+
+    public static List<User> getUserData(){
+        Random random = new Random();
+        List<User> users = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) {
+            User user = new User();
+            user.setUserId(i);
+            user.setUserName(String.format("%s 号", i));
+            user.setAge(random.nextInt(100));
+            user.setGender(i % 2);
+            user.setPhone("13113113113");
+            user.setAddress("无");
+            users.add(user);
+        }
+        return users;
+    }
+}
+//省略Getter&Setter
+```
+## filter
+用于条件筛选过滤,筛选出符合条件的数据:
+```java
+private static void filter(){
+    List<User> users = User.getUserData();
+    Stream<User> stream = users.stream();
+    //筛选出性别为0年龄大于50的记录
+    stream.filter(user -> user.getGender().equals(0) && user.getAge()>50).forEach(e->System.out.println(e));
+
+    /**
+     *等同于下面这种形式 匿名内部类
+        */
+    stream.filter(new Predicate<User>() {
+        @Override
+        public boolean test(User user) {
+            return user.getGender().equals(0) && user.getAge()>50;
+        }
+    }).forEach(e->System.out.println(e));
+}
+```
+
+## map
+`map` 方法接受一个 `Function` 函数式接口,通过原始数据元素,映射出新的类型.
+```java
+<R> Stream<R> map(Function<? super T, ? extends R> mapper);
+```
+而 `Function` 接口接受一个**T**型参数,返回一个**R**型参数.适合用于将一个类型转换成另一个类型,这也是 `map` 的初衷所在,用于改变当前元素的类型,例如将 `Integer` 转为 `String` 类型,将DAO实体类型,转换成DTO实例类型.
+
+**T**和**R**的类型可以一样,这样的话就和 `peek` 方法没什么不同.
+```java
+@FunctionalInterface
+public interface Function<T, R> {
+    R apply(T t);
+}
+```
+例如将 User 转换为 API 输出的数据格式
+```java
+private static void map(){
+    List<User> users = getUserData();
+    Stream<User> stream = users.stream();
+    List<UserDto> userDtos = stream.map(user -> dao2Dto(user)).collect(Collectors.toList());
+}
+
+private static UserDto dao2Dto(User user){
+    UserDto dto = new UserDto();
+    BeanUtils.copyProperties(user, dto);
+    //其他额外处理
+    return dto;
+}
+```
+或者批量提取出某个属性
+```java
+List<Term> seg = analyzer.seg(str);
+//将分词结果根据词性筛选后返回String类型的单词
+List<String> collects = seg.stream().filter(term -> (!term.nature.startsWith("nt"))).filter(term -> (term.nature.toString().contains("n"))).map(term -> term.word).collect(Collectors.toList());
+```
+## mapToInt
+将元素转换成 `int` 类型,在 `map` 方法的基础上进行封装
+```java
+private static void mapToInt(){
+    List<String> list = Arrays.asList("1", "2", "3");
+    int[] ints = list.stream().mapToInt(Integer::parseInt).toArray();
+}
+```
+## mapToLong
+将元素转换成`long`类型,在 `map` 方法的基础上进行封装.
+```java
+private static void mapToLong(){
+    List<User> users = User.getUserData();
+    long[] array = users.stream().mapToLong(user -> Long.parseLong(user.getPhone())).toArray();
+}
+```
+## mapToDouble
+将元素转换成 `double` 类型,在 `map` 方法的基础上进行封装.
+```java
+private static void mapToDouble(){
+        List<String> list = Arrays.asList("1.11", "2.22", "3.33");
+        double[] doubles = list.stream().mapToDouble(s -> Double.parseDouble(s)).toArray();
+    }
+```
+## flatMap
+在一些特别的场景下,当你的Stream是以下几种结构时,需要用到 `flatMap` 方法,用于将原有二维结构扁平化.
+- `Stream<String[]>`
+- `Stream<Set<String>>`
+- `Stream<List<String>>`
+以上三类结构,通过 `flatMap` 方法,可以将结果转化为 `Stream<String>` 这种形式,方便之后操作.
+
+比如将 `List<List<User>>` 扁平处理,然后再使用 `map` 或其它方法进行操作.
+```java
+private static void flatMap(){
+    List<User> users = User.getUserData();
+    List<User> users1 = User.getUserData();
+    List<List<User>> userList = new ArrayList<>();
+    userList.add(users);
+    userList.add(users1);
+    Stream<List<User>> stream = userList.stream();
+    List<UserDto> userDtos = stream.flatMap(subUserList->subUserList.stream()).map(user -> dao2Dto(user)).collect(Collectors.toList());
+}
+```
+## flatMapToInt
+用法参考 `flatMap` ,将元素扁平为 `int` 类型,在 `flatMap` 方法的基础上进行封装
+## flatMapToLong
+用法参考 `flatMap` ,将元素扁平为 `long` 类型,在 `flatMap` 方法的基础上进行封装
+## flatMapToDouble
+用法参考 `flatMap` ,将元素扁平为 `double` 类型,在 `flatMap` 方法的基础上进行封装
+
+## collect
+我们通常是使用List/Map这样的常用数据结构,而 `collect` 就是为了实现这个目的.
+
+就拿 **map** 方法的来说,将对象类型进行转换后最终我们需要的结果集是一个 `List<UserDto>`类型的,使用 `collect` 方法将 **Stream** 转换为我们需要的类型.
+
+下面是 `collect` 方法的定义:
+```java
+<R, A> R collect(Collector<? super T, A, R> collector);
+```
+下面时将`Integer Stream`过滤出大于7的值,然后转换为 `List<Integer>` 集合,用的是 `Collectors.toList()` 这个收集器.
+```java
+private static void collect(){
+    Stream<Integer> integerStream = Stream.of(1,2,5,7,8,12,33);
+    List<Integer> list = integerStream.filter(s -> s.intValue()>7).collect(Collectors.toList());
+}
+```
+`Collector` 收集器是什么意思?看下面这个 `collect` 的另一个重载方法,这是个**ArrayList**从创建到调用 `addAll` 方法的一个过程.
+```java
+private static void collect(){
+    Stream<Integer> integerStream = Stream.of(1,2,5,7,8,12,33);
+    List<Integer> list = integerStream.filter(s -> s.intValue()>7).collect(ArrayList::new, ArrayList::add,
+ArrayList::addAll);
+}
+```
+我们自定义 `Collector` 的时候其实也是这个逻辑,不过我们不用自定义, `Collectors` 已经为我们提供了很多即用的收集器.比如我们经常用到的 `Collectors.toList()`/`Collectors.toSet()`/`Collectors.toMap()`.另外还有比如 `Collectors.groupingBy()` 用来分组,比如按照 **userId** 字段分组,返回以 **userId** 为key,**List** 为 **value** 的 **Map**,或者返回每个 **key** 的个数
+```java
+// 返回 userId:List<User>
+Map<String,List<User>> map = user.stream().collect(Collectors.groupingBy(User::getUserId));
+
+// 返回 userId:每组个数
+Map<String,Long> map = user.stream().collect(Collectors.groupingBy(User::getUserId,Collectors.counting()));
+```
+### toArray
+`collect` 是返回列表/map等, `toArray` 是返回数组,有两个重载,一个空参数,返回的是 `Object[]`.
+
+另一个接收一个 `IntFunction<R>` 类型参数.
+```java
+@FunctionalInterface
+public interface IntFunction<R> {
+    R apply(int value);
+}
+```
+如下使用,参数传递`User[]::new` 也就是 new 一个 User 数组,长度为最后的 Stream 长度.
+```java
+private static void toArray() {
+    List<User> users = getUserData();
+    Stream<User> stream = users.stream();
+    User[] userArray = stream.filter(user -> user.getGender().equals(0) && user.getAge() > 50).toArray(User[]::new);
+}
+```
+## reduce
+它的作用是每次计算的时候都用上一次的结果.比如求和操作,按顺序依次相加一直加到最后一个数位置,最后返回结果,就是 `reduce` 的工作过程.
+```java
+private static void reduce(){
+    Stream<Integer> integerStream = Stream.of(1,2,5,7,8,12,33);
+    Integer sum = integerStream.reduce(0,(x,y)->x+y);
+    System.out.println(sum);
+}
+```
+另外 `Collectors` 好多方法都用到了 `reduce` ,比如 `groupingBy`/`minBy`/`maxBy`等等
+## 并行 Stream
+Stream 本质上来说就是用来做数据处理的,为了加快处理速度,Stream API 提供了并行处理 Stream 的方式.通过 users.parallelStream()或者users.stream().parallel() 的方式来创建并行 Stream 对象,支持的 API 和普通 Stream 几乎是一致的.
+
+并行 Stream 默认使用 ForkJoinPool线程池,当然也支持自定义,不过一般情况下没有必要.ForkJoin 框架的分治策略与并行流处理正好契合.
+
+什么情况下使用或不应使用并行流操作呢？
+
+1. 必须在多核 CPU 下才使用并行 Stream,听上去好像是废话.
+2. 在数据量不大的情况下使用普通串行 Stream 就可以了,使用并行 Stream 对性能影响不大.
+3. CPU 密集型计算适合使用并行 Stream,而 IO 密集型使用并行 Stream 反而会更慢.
+4. 虽然计算是并行的可能很快,但最后大多数时候还是要使用 collect合并的,如果合并代价很大,也不适合用并行 Stream.
+5. 有些操作,比如 limit/0findFirst/forEachOrdered 等依赖于元素顺序的操作,都不适合用并行 Stream.
